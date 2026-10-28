@@ -300,6 +300,42 @@ app.post('/api/admin/yidian/disable-native', async (_req, res) => {
   try { res.json({ success: true, result: await yidian.disableNativeAutoShip(db) }); }
   catch (e) { res.status(502).json({ success: false, message: e.message }); }
 });
+app.post('/api/admin/yidian/products/scan', async (_req, res) => {
+  try { res.json({ success: true, result: await yidian.scanProducts(db) }); }
+  catch (e) { res.status(502).json({ success: false, message: e.message }); }
+});
+app.post('/api/admin/yidian/products/apply', (req, res) => {
+  try { res.json({ success: true, result: yidian.applyScannedProducts(db, req.body?.items) }); }
+  catch (e) { res.status(400).json({ success: false, message: e.message }); }
+});
+app.get('/api/admin/yidian/orders', async (req, res) => {
+  try { res.json({ success: true, result: await yidian.listRecentOrders(db, req.query || {}) }); }
+  catch (e) { res.status(502).json({ success: false, message: e.message }); }
+});
+app.put('/api/admin/yidian/shops/:id/products', (req, res) => {
+  try { res.json({ success: true, data: yidian.replaceShopProducts(db, Number(req.params.id), req.body || {}) }); }
+  catch (e) { res.status(400).json({ success: false, message: e.message }); }
+});
+app.get('/api/admin/yidian/replies', async (req, res) => {
+  try { res.json({ success: true, result: await yidian.listAutoReplies(db, req.query || {}) }); }
+  catch (e) { res.status(502).json({ success: false, message: e.message }); }
+});
+app.get('/api/admin/yidian/replies/:id', async (req, res) => {
+  try { res.json({ success: true, result: await yidian.getAutoReply(db, req.params.id) }); }
+  catch (e) { res.status(502).json({ success: false, message: e.message }); }
+});
+app.post('/api/admin/yidian/replies', async (req, res) => {
+  try { res.json({ success: true, result: await yidian.saveAutoReply(db, req.body || {}) }); }
+  catch (e) { res.status(400).json({ success: false, message: e.message }); }
+});
+app.put('/api/admin/yidian/replies/:id/status', async (req, res) => {
+  try { res.json({ success: true, result: await yidian.setAutoReplyStatus(db, req.params.id, Boolean(req.body?.enabled)) }); }
+  catch (e) { res.status(400).json({ success: false, message: e.message }); }
+});
+app.delete('/api/admin/yidian/replies/:id', async (req, res) => {
+  try { res.json({ success: true, result: await yidian.deleteAutoReply(db, req.params.id) }); }
+  catch (e) { res.status(400).json({ success: false, message: e.message }); }
+});
 
 // ---------------------------------------------------------------------------
 // 第三方 marslinker: 用卡密换取登录态 token(binding2) + 订阅信息(order)
@@ -982,6 +1018,7 @@ async function marsXtokenAlive() {
 }
 
 async function marsAlert(text) {
+  if (!notificationEnabled("notify_mars")) return;
   if (!dingtalk.config().enabled && !readFeishuConfig().enabled) return;
   try {
     await notifyAdmin(`### 🔴 金十登录态 · ${MARS_SERVER_LABEL}\n\n${text}\n\n---\n[后台看板](https://sync-api.xircle.autos/k9m4x7q2/#/dashboard)`);
@@ -2239,6 +2276,11 @@ function getSetting(key) {
   return row ? row.value : "";
 }
 
+function notificationEnabled(key) {
+  const value = getSetting(key);
+  return value === "" || value === "1";
+}
+
 function readSettings() {
   const dc = getSetting("default_card_id");
   return {
@@ -2258,6 +2300,9 @@ function readSettings() {
     dingtalkEnabled: getSetting("dingtalk_enabled") === "1",
     dingtalkWebhook: getSetting("dingtalk_webhook"),
     dingtalkSecret: getSetting("dingtalk_secret"),
+    notifyActivation: notificationEnabled("notify_activation"),
+    notifyMars: notificationEnabled("notify_mars"),
+    notifyYidian: notificationEnabled("notify_yidian"),
     reportEnabled: getSetting("report_enabled") === "1",
     reportTime: getSetting("report_time") || "22:00",
     mailPassSet: !!getSetting("mail_pass"),
@@ -2400,6 +2445,9 @@ app.put("/api/admin/settings", async (req, res) => {
     dingtalkEnabled,
     dingtalkWebhook,
     dingtalkSecret,
+    notifyActivation,
+    notifyMars,
+    notifyYidian,
     reportEnabled,
     reportTime,
     newPassword,
@@ -2424,6 +2472,9 @@ app.put("/api/admin/settings", async (req, res) => {
   if (dingtalkEnabled !== undefined) setKV("dingtalk_enabled", dingtalkEnabled ? "1" : "0");
   if (dingtalkWebhook !== undefined) setKV("dingtalk_webhook", dingtalkWebhook == null ? "" : String(dingtalkWebhook).trim());
   if (dingtalkSecret !== undefined) setKV("dingtalk_secret", dingtalkSecret == null ? "" : String(dingtalkSecret).trim());
+  if (notifyActivation !== undefined) setKV("notify_activation", notifyActivation ? "1" : "0");
+  if (notifyMars !== undefined) setKV("notify_mars", notifyMars ? "1" : "0");
+  if (notifyYidian !== undefined) setKV("notify_yidian", notifyYidian ? "1" : "0");
   if (reportEnabled !== undefined) setKV("report_enabled", reportEnabled ? "1" : "0");
   if (reportTime !== undefined) setKV("report_time", /^\d{1,2}:\d{2}$/.test(String(reportTime)) ? String(reportTime) : "22:00");
   if (upstreamMode === "mars" || upstreamMode === "legacy") setKV("upstream_mode", upstreamMode);
@@ -2711,6 +2762,7 @@ function feishuCard(title, fields, stats, agent) {
 
 // 首次激活提醒: 邮件 + 飞书, 各自按开关独立发送, 失败只记日志
 function notifyActivation(keyRow) {
+  if (!notificationEnabled("notify_activation")) return;
   let s, who, agentName, now;
   try {
     s = computeStats();
@@ -3106,6 +3158,7 @@ if (fs.existsSync(WEB_DIR)) {
 
 const PORT = process.env.PORT || 3721;
 async function yidianAlert(text) {
+  if (!notificationEnabled("notify_yidian")) return;
   console.warn("[yidian]", text);
   if (!dingtalk.config().enabled && !readFeishuConfig().enabled) return;
   try {

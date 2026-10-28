@@ -1,0 +1,23 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "multer": "^1.4.4",
+    "nanoid": "^3.3.18",
+    "nodemailer": "^6.9.16",
+    "puppeteer": "^24.43.1",
+    "ws": "^8.21.3"
+  }
+}

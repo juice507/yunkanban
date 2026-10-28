@@ -1,0 +1,42 @@
+body { margin: 0; }
+
+/* 表头不换行(避免中文竖排单字) */
+.ant-table-thead > tr > th { white-space: nowrap; }
+/* 列宽拖拽手柄 */
+.col-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  width: 8px;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+/* 可点击的统计卡: 悬停上浮 + 蓝色阴影, 提示能点开图表 */
+.stat-card-clickable {
+  cursor: pointer;
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.stat-card-clickable:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 16px rgba(22, 119, 255, .18);
+}
+.stat-card-clickable:active {
+  transform: translateY(-1px);
+}
+
+/* 柱形图: 打开时柱子从底部长出来, 悬停高亮 */
+.chart-bar {
+  transform-origin: bottom;
+  animation: chart-bar-grow .45s ease-out;
+  transition: filter .2s ease;
+}
+.chart-bar-item:hover .chart-bar {
+  filter: brightness(1.15);
+}
+@keyframes chart-bar-grow {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}

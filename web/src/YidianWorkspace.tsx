@@ -45,6 +45,34 @@ export default function YidianWorkspace() {
   const [replyShops, setReplyShops] = useState<ReplyShop[]>([]);
   const [replyCount, setReplyCount] = useState(0);
   const [replyDraft, setReplyDraft] = useState<ReplyDraft | null>(null);
+  const [replyProductsLoading, setReplyProductsLoading] = useState(false);
+  const refreshReplyProducts = async () => {
+    setReplyProductsLoading(true);
+    try {
+      const { data } = await api.post("/admin/yidian/products/scan");
+      setProducts(data.result?.products || []);
+    } catch (error: any) { message.error(error?.response?.data?.message || "读取商品失败，请点击刷新商品重试"); }
+    finally { setReplyProductsLoading(false); }
+  };
+  useEffect(() => {
+    if (replyDraft?.scope === 1 && !products.length) void refreshReplyProducts();
+  }, [Boolean(replyDraft), replyDraft?.scope]);
+  const replyProductOptions = useMemo(() => {
+    const selected = parseList(replyDraft?.goodsIds);
+    const options = new Map<string, { value: string; label: string; product?: Product }>();
+    for (const product of products) {
+      if (replyDraft?.shopIds.length && !replyDraft.shopIds.includes(product.shopId) && !selected.includes(product.goodsId)) continue;
+      if (!options.has(product.goodsId)) options.set(product.goodsId, {
+        value: product.goodsId,
+        label: `${product.name} · ${product.shopName} · ${product.goodsId}`,
+        product,
+      });
+    }
+    for (const id of selected) {
+      if (!options.has(id)) options.set(id, { value: id, label: `已绑定商品 · ${id}` });
+    }
+    return [...options.values()];
+  }, [products, replyDraft?.goodsIds, replyDraft?.shopIds]);
 
   const loadShops = async () => {
     const { data } = await api.get("/admin/yidian");
@@ -274,7 +302,26 @@ export default function YidianWorkspace() {
           <div className="yd-picker-row"><span>适用范围：</span><Select value={replyDraft.scope} onChange={(value) => setReplyDraft({ ...replyDraft, scope: value })} style={{ width: 260 }} options={[{ value: 0, label: "全部店铺和商品" }, { value: 1, label: "指定店铺 / 商品" }]} /></div>
           {replyDraft.scope === 1 ? <>
             <div className="yd-picker-label">指定店铺（可多选）</div><Select mode="multiple" value={replyDraft.shopIds} onChange={(value) => setReplyDraft({ ...replyDraft, shopIds: value })} placeholder="选择店铺" style={{ width: "100%" }} options={replyShops.map((shop) => ({ value: shop.shopId, label: shop.display || `${shop.name} (${shop.shopId})` }))} />
-            <div className="yd-picker-label">绑定商品 ID（每行一个，也可用逗号分隔）</div><Input.TextArea rows={3} value={replyDraft.goodsIds} onChange={(event) => setReplyDraft({ ...replyDraft, goodsIds: event.target.value })} placeholder="1079904675543" />
+            <div className="yd-picker-label"><Space>绑定商品（可多选）<Button size="small" icon={<ReloadOutlined />} loading={replyProductsLoading} onClick={() => void refreshReplyProducts()}>刷新商品</Button></Space></div>
+            <Select
+              mode="multiple"
+              showSearch
+              allowClear
+              maxTagCount="responsive"
+              loading={replyProductsLoading}
+              value={parseList(replyDraft.goodsIds)}
+              onChange={(ids: string[]) => setReplyDraft({ ...replyDraft, goodsIds: ids.join("\n") })}
+              optionFilterProp="label"
+              placeholder="搜索商品名称、店铺或 ID，点击勾选多个商品"
+              style={{ width: "100%" }}
+              options={replyProductOptions}
+              notFoundContent={replyProductsLoading ? "正在加载商品…" : "没有匹配商品，可刷新商品或调整店铺筛选"}
+              optionRender={(option) => {
+                const product = option.data.product;
+                return product ? <div className="yd-product-cell"><Avatar shape="square" size={40} src={product.image ? resolveUrl(product.image) : undefined}>{product.name.slice(0, 1)}</Avatar><div><strong>{product.name}</strong><small>{product.shopName} · {product.goodsId}</small></div></div> : <span>{option.label}</span>;
+              }}
+            />
+            <div style={{ color: "#94a3b8", margin: "8px 0 16px" }}>已选择 {parseList(replyDraft.goodsIds).length} 个商品。选择店铺后按店铺筛选；已有绑定会保留。商品来自订单历史，尚无订单的新品可能暂未显示。</div>
           </> : null}
           <div className="yd-picker-label">排除商品 ID（可选）</div><Input.TextArea rows={2} value={replyDraft.excludeGoods} onChange={(event) => setReplyDraft({ ...replyDraft, excludeGoods: event.target.value })} placeholder="匹配到规则后，这些商品不触发回复" />
           <div className="yd-picker-row"><span>启用规则：</span><Switch checked={replyDraft.enabled} onChange={(checked) => setReplyDraft({ ...replyDraft, enabled: checked })} /></div>

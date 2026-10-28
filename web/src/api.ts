@@ -147,6 +147,7 @@ export async function fetchKeys(params: {
   keyCode?: string;
   name?: string;
   status?: string;
+  keyState?: string;
   agentId?: number | string;
   licenseType?: string;
 }) {

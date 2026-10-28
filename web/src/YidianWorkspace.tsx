@@ -1,22 +1,37 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Avatar, Button, Card, Input, Modal, Select, Space, Statistic, Switch, Table, Tag, message } from "antd";
-import { AppstoreOutlined, ReloadOutlined, ShopOutlined, ShoppingCartOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { useLocation } from "react-router-dom";
+import { Alert, Avatar, Button, Card, Input, Modal, Popconfirm, Select, Space, Statistic, Switch, Table, Tag, message } from "antd";
+import { AppstoreOutlined, MessageOutlined, ReloadOutlined, ShopOutlined, ShoppingCartOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { api, resolveUrl } from "./api";
 import "./YidianWorkspace.css";
 
 type Shop = { id: number; name: string; shopId: string; enabled: boolean; trialStock: number; formalStock: number; trialGoodsId: string; formalGoodsIds: string[]; updatedAt: string };
 type Product = { key: string; goodsId: string; shopId: string; shopName: string; name: string; image: string; orderCount: number; lastSeenAt: string; configuredAs: string; shopConfigured: boolean };
 type Order = { orderId: string; name: string; image: string; shopId: string; goodsId: string; pay: string; status: number; payTime: string; buyerName: string; quantity: number; sentAt: string };
+type ReplyShop = { shopId: string; name: string; display: string };
+type AutoReply = { id: number; keys: string; data: string; type: string; status: number; goods_id: string; match: string; reply_type: string; system_message: string; scope: number; nick_ids: string; exclude_goods: string };
+type ReplyDraft = { id?: number; replyType: number; keyword: string; match: number; replyText: string; scope: number; shopIds: string[]; goodsIds: string; excludeGoods: string; enabled: boolean };
+
+const emptyReplyDraft = (): ReplyDraft => ({ replyType: 0, keyword: "", match: 1, replyText: "", scope: 0, shopIds: [], goodsIds: "", excludeGoods: "", enabled: true });
+const parseList = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.map(String);
+  if (!value) return [];
+  try { const parsed = JSON.parse(String(value)); return Array.isArray(parsed) ? parsed.map(String) : Object.keys(parsed || {}); }
+  catch { return String(value).split(/[\s,;，；]+/).filter(Boolean); }
+};
 
 const sections = [
   { key: "shops", label: "店铺", icon: <ShopOutlined /> },
   { key: "products", label: "商品", icon: <AppstoreOutlined /> },
   { key: "orders", label: "订单", icon: <ShoppingCartOutlined /> },
+  { key: "replies", label: "自动回复", icon: <MessageOutlined /> },
   { key: "delivery", label: "发货设置", icon: <ThunderboltOutlined /> },
 ] as const;
 
 export default function YidianWorkspace() {
-  const [section, setSection] = useState<(typeof sections)[number]["key"]>("shops");
+  const location = useLocation();
+  const requestedSection = location.pathname.split("/")[2];
+  const section = sections.find((item) => item.key === requestedSection)?.key || "shops";
   const [shops, setShops] = useState<Shop[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -26,6 +41,10 @@ export default function YidianWorkspace() {
   const [productPickerShop, setProductPickerShop] = useState<Shop | null>(null);
   const [selectedFormalIds, setSelectedFormalIds] = useState<string[]>([]);
   const [selectedTrialId, setSelectedTrialId] = useState<string>("");
+  const [replies, setReplies] = useState<AutoReply[]>([]);
+  const [replyShops, setReplyShops] = useState<ReplyShop[]>([]);
+  const [replyCount, setReplyCount] = useState(0);
+  const [replyDraft, setReplyDraft] = useState<ReplyDraft | null>(null);
 
   const loadShops = async () => {
     const { data } = await api.get("/admin/yidian");
@@ -46,6 +65,64 @@ export default function YidianWorkspace() {
       setOrders(data.result?.rows || []);
     } catch (error: any) { message.error(error?.response?.data?.message || "读取订单失败"); }
     finally { setLoading(false); }
+  };
+  const loadReplies = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/admin/yidian/replies", { params: { keyword, limit: 100 } });
+      setReplies(data.result?.list || []);
+      setReplyShops(data.result?.shops || []);
+      setReplyCount(Number(data.result?.count || 0));
+    } catch (error: any) { message.error(error?.response?.data?.message || "读取自动回复失败"); }
+    finally { setLoading(false); }
+  };
+  const openReplyEditor = async (row?: AutoReply) => {
+    if (!row) { setReplyDraft(emptyReplyDraft()); return; }
+    setLoading(true);
+    try {
+      const { data } = await api.get(`/admin/yidian/replies/${row.id}`);
+      const info = data.result?.info || {};
+      setReplyDraft({
+        id: row.id,
+        replyType: Number(info.reply_type ?? row.reply_type ?? 0),
+        keyword: String(info.keyword || row.keys || ""),
+        match: Number(info.match ?? row.match ?? 1),
+        replyText: String(info.reply_txt || row.data || ""),
+        scope: Number(info.scope ?? row.scope ?? 0),
+        shopIds: parseList(info.nick_ids ?? row.nick_ids),
+        goodsIds: (info.recommend_list || parseList(row.goods_id).map((goods_id: string) => ({ goods_id }))).map((item: any) => String(item.goods_id)).join("\n"),
+        excludeGoods: parseList(info.exclude_list ?? row.exclude_goods).join("\n"),
+        enabled: Number(info.is_show ?? row.status ?? 1) === 1,
+      });
+    } catch (error: any) { message.error(error?.response?.data?.message || "读取规则失败"); }
+    finally { setLoading(false); }
+  };
+  const saveReply = async () => {
+    if (!replyDraft) return;
+    if (replyDraft.replyType === 0 && !replyDraft.keyword.trim()) return message.warning("请输入关键词");
+    if (!replyDraft.replyText.trim()) return message.warning("请输入回复内容");
+    setLoading(true);
+    try {
+      await api.post("/admin/yidian/replies", { ...replyDraft, type: 1 });
+      message.success(replyDraft.id ? "自动回复已更新" : "自动回复已添加");
+      setReplyDraft(null);
+      await loadReplies();
+    } catch (error: any) { message.error(error?.response?.data?.message || "保存失败"); }
+    finally { setLoading(false); }
+  };
+  const toggleReply = async (row: AutoReply, enabled: boolean) => {
+    try {
+      await api.put(`/admin/yidian/replies/${row.id}/status`, { enabled });
+      message.success(enabled ? "已开启自动回复" : "已关闭自动回复");
+      await loadReplies();
+    } catch (error: any) { message.error(error?.response?.data?.message || "更新失败"); }
+  };
+  const removeReply = async (row: AutoReply) => {
+    try {
+      await api.delete(`/admin/yidian/replies/${row.id}`);
+      message.success("已删除");
+      await loadReplies();
+    } catch (error: any) { message.error(error?.response?.data?.message || "删除失败"); }
   };
   const toggleDelivery = async (shop: Shop, enabled: boolean) => {
     try {
@@ -87,6 +164,7 @@ export default function YidianWorkspace() {
   useEffect(() => {
     if (section === "products" && !products.length) void loadProducts();
     if (section === "orders" && !orders.length) void loadOrders();
+    if (section === "replies" && !replies.length) void loadReplies();
   }, [section]);
 
   const visibleProducts = useMemo(() => products.filter((item) => !keyword || `${item.name}${item.goodsId}${item.shopName}`.toLowerCase().includes(keyword.toLowerCase())), [products, keyword]);
@@ -94,19 +172,15 @@ export default function YidianWorkspace() {
 
   return (
     <div className="yd-workspace">
-      <aside className="yd-subnav">
-        <div className="yd-subnav-title">易店助手</div>
-        {sections.map((item) => <button key={item.key} className={section === item.key ? "active" : ""} onClick={() => { setKeyword(""); setSection(item.key); }}>{item.icon}<span>{item.label}</span></button>)}
-      </aside>
       <main className="yd-main">
         <div className="yd-page-title"><div><h2>{title}管理</h2><p>闲鱼店铺、商品、订单与自动发货统一管理</p></div><Tag color="blue">易店助手已连接</Tag></div>
 
         {section !== "delivery" ? <Card className="yd-filter-card" bordered={false}>
           <Space wrap size={14}>
             {section === "orders" ? <Select value={status} onChange={setStatus} style={{ width: 180 }} options={[{ value: "", label: "全部订单状态" }, { value: "1", label: "待发货" }, { value: "2", label: "已发货" }]} /> : null}
-            <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} allowClear placeholder={section === "shops" ? "搜索店铺名称或会员名" : section === "products" ? "搜索商品名称或 ID" : "搜索订单或商品"} style={{ width: 300 }} />
-            <Button type="primary" onClick={() => section === "products" ? void loadProducts() : section === "orders" ? void loadOrders() : void loadShops()}>查询</Button>
-            <Button icon={<ReloadOutlined />} onClick={() => section === "products" ? void loadProducts() : section === "orders" ? void loadOrders() : void loadShops()}>刷新</Button>
+            <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} allowClear placeholder={section === "shops" ? "搜索店铺名称或会员名" : section === "products" ? "搜索商品名称或 ID" : section === "replies" ? "搜索关键词或回复内容" : "搜索订单或商品"} style={{ width: 300 }} />
+            <Button type="primary" onClick={() => section === "products" ? void loadProducts() : section === "orders" ? void loadOrders() : section === "replies" ? void loadReplies() : void loadShops()}>查询</Button>
+            <Button icon={<ReloadOutlined />} onClick={() => section === "products" ? void loadProducts() : section === "orders" ? void loadOrders() : section === "replies" ? void loadReplies() : void loadShops()}>刷新</Button>
           </Space>
         </Card> : null}
 
@@ -148,6 +222,21 @@ export default function YidianWorkspace() {
           ]} />
         </Card> : null}
 
+        {section === "replies" ? <Card className="yd-list-card" bordered={false} title="自动回复规则" extra={<Space><span>共 {replyCount} 条</span><Button type="primary" icon={<MessageOutlined />} onClick={() => void openReplyEditor()}>添加自动回复</Button></Space>}>
+          <Alert type="info" showIcon message="规则保存后会直接同步到易店助手；请确保对应鱼店已在易店助手中开启自动回复。" style={{ marginBottom: 18 }} />
+          <Table rowKey="id" loading={loading} dataSource={replies} pagination={{ pageSize: 20 }} scroll={{ x: 1250 }} columns={[
+            { title: "ID", dataIndex: "id", width: 80 },
+            { title: "关键词", dataIndex: "keys", width: 150, render: (value, row) => <Tag color="blue">{Number(row.reply_type) === 1 ? "首次回复" : value || "系统消息"}</Tag> },
+            { title: "类型", width: 90, render: (_, row) => Number(row.reply_type) === 1 ? "首次" : Number(row.reply_type) === 2 ? "系统" : "关键词" },
+            { title: "触发规则", width: 100, render: (_, row) => Number(row.match) === 2 ? "精确匹配" : "包含" },
+            { title: "指定商品", width: 220, render: (_, row) => { const ids = parseList(row.goods_id); return ids.length ? <Space wrap size={[4, 4]}>{ids.map((id) => <Tag key={id}>{id}</Tag>)}</Space> : <span className="yd-empty">全部</span>; } },
+            { title: "指定店铺", width: 180, render: (_, row) => { const ids = parseList(row.nick_ids); return ids.length ? ids.map((id) => <Tag color="gold" key={id}>{id}</Tag>) : <span className="yd-empty">全部店铺</span>; } },
+            { title: "回复内容", dataIndex: "data", ellipsis: true, width: 280 },
+            { title: "状态", width: 100, fixed: "right", render: (_, row) => <Switch checked={Number(row.status) === 1} checkedChildren="开启" unCheckedChildren="关闭" onChange={(checked) => void toggleReply(row, checked)} /> },
+            { title: "操作", width: 130, fixed: "right", render: (_, row) => <Space><a onClick={() => void openReplyEditor(row)}>编辑</a><Popconfirm title="确定删除这条自动回复？" onConfirm={() => void removeReply(row)}><a style={{ color: "#ff4d4f" }}>删除</a></Popconfirm></Space> },
+          ]} />
+        </Card> : null}
+
         {section === "delivery" ? <div className="yd-delivery">
           <div className="yd-stats"><Card><Statistic title="店铺数量" value={shops.length} /></Card><Card><Statistic title="自动发货已开启" value={shops.filter((s) => s.enabled).length} /></Card><Card><Statistic title="试用密钥库存" value={shops.reduce((n, s) => n + s.trialStock, 0)} /></Card><Card><Statistic title="正式密钥库存" value={shops.reduce((n, s) => n + s.formalStock, 0)} /></Card></div>
           <Card className="yd-list-card" bordered={false} title="店铺自动发货" extra={<Button icon={<ReloadOutlined />} onClick={() => void loadShops()}>刷新库存</Button>}>
@@ -175,6 +264,21 @@ export default function YidianWorkspace() {
           { title: "历史订单", dataIndex: "orderCount", width: 100 },
           { title: "最近出现", dataIndex: "lastSeenAt", width: 180 },
         ]} />
+      </Modal>
+      <Modal title={replyDraft?.id ? "编辑自动回复" : "添加自动回复"} open={Boolean(replyDraft)} width={720} okText="保存规则" cancelText="取消" confirmLoading={loading} onOk={() => void saveReply()} onCancel={() => setReplyDraft(null)}>
+        {replyDraft ? <div className="yd-reply-form">
+          <div className="yd-picker-row"><span>回复类型：</span><Select value={replyDraft.replyType} onChange={(value) => setReplyDraft({ ...replyDraft, replyType: value, keyword: value === 1 ? "首次回复" : "" })} style={{ width: 260 }} options={[{ value: 0, label: "关键词回复" }, { value: 1, label: "首次回复" }]} /></div>
+          {replyDraft.replyType === 0 ? <><div className="yd-picker-label">关键词（多个关键词用 | 分隔）</div><Input value={replyDraft.keyword} onChange={(event) => setReplyDraft({ ...replyDraft, keyword: event.target.value })} placeholder="例如：价格|怎么用|有教程吗" /></> : null}
+          {replyDraft.replyType === 0 ? <div className="yd-picker-row"><span>匹配方式：</span><Select value={replyDraft.match} onChange={(value) => setReplyDraft({ ...replyDraft, match: value })} style={{ width: 260 }} options={[{ value: 1, label: "包含关键词" }, { value: 2, label: "完全一致" }]} /></div> : null}
+          <div className="yd-picker-label">回复内容</div><Input.TextArea rows={5} maxLength={500} showCount value={replyDraft.replyText} onChange={(event) => setReplyDraft({ ...replyDraft, replyText: event.target.value })} placeholder="输入发给买家的文字" />
+          <div className="yd-picker-row"><span>适用范围：</span><Select value={replyDraft.scope} onChange={(value) => setReplyDraft({ ...replyDraft, scope: value })} style={{ width: 260 }} options={[{ value: 0, label: "全部店铺和商品" }, { value: 1, label: "指定店铺 / 商品" }]} /></div>
+          {replyDraft.scope === 1 ? <>
+            <div className="yd-picker-label">指定店铺（可多选）</div><Select mode="multiple" value={replyDraft.shopIds} onChange={(value) => setReplyDraft({ ...replyDraft, shopIds: value })} placeholder="选择店铺" style={{ width: "100%" }} options={replyShops.map((shop) => ({ value: shop.shopId, label: shop.display || `${shop.name} (${shop.shopId})` }))} />
+            <div className="yd-picker-label">绑定商品 ID（每行一个，也可用逗号分隔）</div><Input.TextArea rows={3} value={replyDraft.goodsIds} onChange={(event) => setReplyDraft({ ...replyDraft, goodsIds: event.target.value })} placeholder="1079904675543" />
+          </> : null}
+          <div className="yd-picker-label">排除商品 ID（可选）</div><Input.TextArea rows={2} value={replyDraft.excludeGoods} onChange={(event) => setReplyDraft({ ...replyDraft, excludeGoods: event.target.value })} placeholder="匹配到规则后，这些商品不触发回复" />
+          <div className="yd-picker-row"><span>启用规则：</span><Switch checked={replyDraft.enabled} onChange={(checked) => setReplyDraft({ ...replyDraft, enabled: checked })} /></div>
+        </div> : null}
       </Modal>
     </div>
   );

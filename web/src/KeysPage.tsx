@@ -421,18 +421,16 @@ export default function KeysPage() {
 
   const columns: ProColumns<LicenseKey>[] = [
     {
-      title: "展示头像",
-      dataIndex: "avatar",
-      search: false,
-      width: 80,
-      render: (_, r) => <Avatar src={resolveUrl(r.avatar) || undefined} icon={<UserOutlined />} />,
-    },
-    {
-      title: "展示昵称",
+      title: "头像 / 昵称",
       dataIndex: "nickname",
       search: false,
-      width: 120,
-      render: (v) => v || <span style={{ color: "#999" }}>(未设置)</span>,
+      width: 150,
+      render: (_, r) => (
+        <Space size={8}>
+          <Avatar size="small" src={resolveUrl(r.avatar) || undefined} icon={<UserOutlined />} />
+          {r.nickname || <span style={{ color: "#999" }}>(未设置)</span>}
+        </Space>
+      ),
     },
     {
       title: "密钥",
@@ -489,26 +487,79 @@ export default function KeysPage() {
         placeholder: "全部",
         options: LICENSE_TYPE_OPTIONS,
       },
-      render: (_, r) => <LicenseTypeTag value={r.licenseType} />,
+      render: (_, r) => (
+        <div style={{ lineHeight: 1.6 }}>
+          <LicenseTypeTag value={r.licenseType} />
+          {r.cardLabel ? (
+            <div>
+              <Tag color="purple" style={{ marginTop: 2 }}>{r.cardLabel}</Tag>
+            </div>
+          ) : null}
+        </div>
+      ),
     },
     {
-      title: "激活状态",
-      key: "activated",
-      search: false,
-      width: 100,
-      render: (_, r) => (r.activated ? <Tag color="success">已激活</Tag> : <Tag>未激活</Tag>),
-    },
-    {
-      title: "封禁",
-      dataIndex: "status",
-      width: 90,
+      title: "密钥状态",
+      dataIndex: "keyState",
+      width: 105,
       valueType: "select",
       valueEnum: {
-        active: { text: "正常" },
-        disabled: { text: "已封禁" },
+        unactivated: { text: "未激活" },
+        normal: { text: "正常" },
+        disabled: { text: "封禁" },
+        expired: { text: "到期" },
       },
-      render: (_, r) =>
-        r.status === "disabled" ? <Tag color="red">已封禁</Tag> : <Tag color="green">正常</Tag>,
+      render: (_, r) => {
+        const expired = r.status === "active" && r.expiryDate && new Date(String(r.expiryDate).replace(" ", "T")) < new Date();
+        if (r.status === "disabled") return <Tag color="red">封禁</Tag>;
+        if (expired) return <Tag color="orange">到期</Tag>;
+        if (!r.activated) return <Tag>未激活</Tag>;
+        return <Tag color="green">正常</Tag>;
+      },
+    },
+    {
+      title: "到期 / 剩余",
+      dataIndex: "expiryDate",
+      search: false,
+      width: 170,
+      render: (_, r) => {
+        const hasDate = r.expiryDate && r.expiryDate !== "-";
+        let remain: React.ReactNode = null;
+        if (r.remainingDays == null) {
+          if (r.validDays && r.validDays > 0 && !r.activated) remain = <Tag>未激活</Tag>;
+          else if (!hasDate) remain = <Tag>永久</Tag>;
+        } else {
+          const d = r.remainingDays;
+          const color = d <= 0 ? "red" : d <= 3 ? "orange" : d <= 7 ? "gold" : "green";
+          remain = <Tag color={color}>{d <= 0 ? "已到期" : `${d} 天`}</Tag>;
+        }
+        return (
+          <div style={{ lineHeight: 1.6 }}>
+            {hasDate ? (
+              <div>{String(r.expiryDate)}</div>
+            ) : r.validDays > 0 ? (
+              <div style={{ color: "#888", fontSize: 12 }}>激活后 {r.validDays} 天</div>
+            ) : null}
+            {remain}
+          </div>
+        );
+      },
+    },
+    {
+      title: "设备占用",
+      dataIndex: "deviceCount",
+      search: false,
+      width: 100,
+      render: (_, r) => (
+        <Tag
+          color={r.deviceCount >= r.maxDevices ? "red" : "blue"}
+          style={{ cursor: "pointer" }}
+          title="点击查看设备"
+          onClick={() => setDeviceDrawer({ id: r.id, name: r.name || r.keyCode })}
+        >
+          {r.deviceCount} / {r.maxDevices}
+        </Tag>
+      ),
     },
     {
       title: "激活时间",
@@ -519,71 +570,23 @@ export default function KeysPage() {
         r.activatedAt ? String(r.activatedAt) : <span style={{ color: "#bbb" }}>—</span>,
     },
     {
-      title: "分配卡密",
-      dataIndex: "cardLabel",
-      search: false,
-      width: 140,
-      render: (_, r) =>
-        r.cardLabel ? (
-          <Tag color="purple">{r.cardLabel}</Tag>
-        ) : (
-          <Tag>默认</Tag>
-        ),
-    },
-    {
-      title: "设备占用",
-      dataIndex: "deviceCount",
-      search: false,
-      width: 100,
-      render: (_, r) => (
-        <Tag color={r.deviceCount >= r.maxDevices ? "red" : "blue"}>
-          {r.deviceCount} / {r.maxDevices}
-        </Tag>
-      ),
-    },
-    {
-      title: "到期时间",
-      dataIndex: "expiryDate",
-      search: false,
-      render: (_, r) => {
-        if (r.expiryDate && r.expiryDate !== "-") return String(r.expiryDate);
-        if (r.validDays > 0) return <Tag color="blue">激活后{r.validDays}天</Tag>;
-        return <Tag>永久</Tag>;
-      },
-    },
-    {
-      title: "剩余天数",
-      dataIndex: "remainingDays",
-      search: false,
-      width: 100,
-      render: (_, r) => {
-        if (r.remainingDays == null) {
-          if (r.validDays && r.validDays > 0 && !r.activated) return <Tag>未激活</Tag>;
-          return <Tag>永久</Tag>;
-        }
-        const d = r.remainingDays;
-        const color = d <= 0 ? "red" : d <= 3 ? "orange" : d <= 7 ? "gold" : "green";
-        return <Tag color={color}>{d <= 0 ? "已到期" : `${d} 天`}</Tag>;
-      },
-    },
-    {
       title: "客户",
       dataIndex: "customerName",
       search: false,
-      width: 180,
+      width: 200,
       render: (_, r) => {
-        if (!r.customerName && !r.phone && !r.wechat && !r.qq) return <span style={{ color: "#bbb" }}>—</span>;
+        const contacts = [r.phone && `电话 ${r.phone}`, r.wechat && `微信 ${r.wechat}`, r.qq && `QQ ${r.qq}`].filter(Boolean);
+        if (!r.customerName && !contacts.length) return <span style={{ color: "#bbb" }}>—</span>;
         return (
           <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-            {r.customerName && <div>{r.customerName}</div>}
-            {r.phone && <div style={{ color: "#888" }}>电话：{r.phone}</div>}
-            {r.wechat && <div style={{ color: "#888" }}>微信：{r.wechat}</div>}
-            {r.qq && <div style={{ color: "#888" }}>QQ：{r.qq}</div>}
+            {r.customerName && <div style={{ fontSize: 13 }}>{r.customerName}</div>}
+            {contacts.map((c) => (
+              <div key={String(c)} style={{ color: "#888" }}>{c}</div>
+            ))}
           </div>
         );
       },
     },
-    { title: "创建时间", dataIndex: "createdAt", search: false },
     {
       title: "操作",
       valueType: "option",
@@ -746,6 +749,7 @@ export default function KeysPage() {
             keyCode: params.keyCode,
             name: params.name,
             status: params.status,
+            keyState: params.keyState,
             agentId: params.agentId,
             licenseType: params.licenseType,
           });

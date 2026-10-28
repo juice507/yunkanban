@@ -193,6 +193,7 @@ export default function YidianWorkspace() {
     if (section === "products" && !products.length) void loadProducts();
     if (section === "orders" && !orders.length) void loadOrders();
     if (section === "replies" && !replies.length) void loadReplies();
+    if (section === "replies" && !products.length) void refreshReplyProducts();
   }, [section]);
 
   const visibleProducts = useMemo(() => products.filter((item) => !keyword || `${item.name}${item.goodsId}${item.shopName}`.toLowerCase().includes(keyword.toLowerCase())), [products, keyword]);
@@ -257,7 +258,10 @@ export default function YidianWorkspace() {
             { title: "关键词", dataIndex: "keys", width: 150, render: (value, row) => <Tag color="blue">{Number(row.reply_type) === 1 ? "首次回复" : value || "系统消息"}</Tag> },
             { title: "类型", width: 90, render: (_, row) => Number(row.reply_type) === 1 ? "首次" : Number(row.reply_type) === 2 ? "系统" : "关键词" },
             { title: "触发规则", width: 100, render: (_, row) => Number(row.match) === 2 ? "精确匹配" : "包含" },
-            { title: "指定商品", width: 220, render: (_, row) => { const ids = parseList(row.goods_id); return ids.length ? <Space wrap size={[4, 4]}>{ids.map((id) => <Tag key={id}>{id}</Tag>)}</Space> : <span className="yd-empty">全部</span>; } },
+            { title: "绑定商品", width: 300, render: (_, row) => { const ids = parseList(row.goods_id); const shopIds = parseList(row.nick_ids); return ids.length ? <Space direction="vertical" style={{ width: "100%" }}>{ids.map((id) => {
+              const product = products.find((item) => item.goodsId === id && (!shopIds.length || shopIds.includes(item.shopId))) || products.find((item) => item.goodsId === id);
+              return <div key={id} className="yd-product-cell"><Avatar shape="square" size={42} src={product?.image ? resolveUrl(product.image) : undefined}>{product?.name?.slice(0, 1) || "商"}</Avatar><div title={product?.name || id}><strong>{product?.name || (replyProductsLoading ? "正在读取商品…" : "未获取到商品名称")}</strong><small>{product?.shopName ? `${product.shopName} · ` : ""}{id}</small></div></div>;
+            })}</Space> : <span className="yd-empty">全部商品</span>; } },
             { title: "指定店铺", width: 180, render: (_, row) => { const ids = parseList(row.nick_ids); return ids.length ? ids.map((id) => <Tag color="gold" key={id}>{id}</Tag>) : <span className="yd-empty">全部店铺</span>; } },
             { title: "回复内容", dataIndex: "data", ellipsis: true, width: 280 },
             { title: "状态", width: 100, fixed: "right", render: (_, row) => <Switch checked={Number(row.status) === 1} checkedChildren="开启" unCheckedChildren="关闭" onChange={(checked) => void toggleReply(row, checked)} /> },
@@ -315,6 +319,10 @@ export default function YidianWorkspace() {
               placeholder="搜索商品名称、店铺或 ID，点击勾选多个商品"
               style={{ width: "100%" }}
               options={replyProductOptions}
+              tagRender={({ value, label, closable, onClose }) => {
+                const product = products.find((item) => item.goodsId === String(value));
+                return <Tag closable={closable} onClose={onClose} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%", margin: 3 }}><Avatar shape="square" size={24} src={product?.image ? resolveUrl(product.image) : undefined}>{product?.name?.slice(0, 1) || "商"}</Avatar><span style={{ maxWidth: 330, overflow: "hidden", textOverflow: "ellipsis" }} title={String(label)}>{product?.name || label}</span></Tag>;
+              }}
               notFoundContent={replyProductsLoading ? "正在加载商品…" : "没有匹配商品，可刷新商品或调整店铺筛选"}
               optionRender={(option) => {
                 const product = option.data.product;

@@ -22,3 +22,4 @@ subscription-token
 server/telemetry-production-probe.cjs
 .DS_Store
 Thumbs.db
+design-preview/preview-*.png
